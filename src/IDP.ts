@@ -1,4 +1,4 @@
-import { Request, Response, Express } from "express"
+import express, { Request, Response, Router } from "express"
 import { importPKCS8, SignJWT, exportJWK } from 'jose';
 import { generateKeyPairSync, createPublicKey } from 'crypto'
 
@@ -9,8 +9,7 @@ const createCodeStore = ()=> {
     register: (name: string, nonce: string): string => {
       const code = `dummy-auth-code-${name}`
       table[code] = {
-        name,
-        nonce
+        name, nonce
       }
       return `dummy-auth-code-${name}`
     },
@@ -21,21 +20,20 @@ const createCodeStore = ()=> {
   }
 }
 
-export const assignIDPRoutes = (
-  app: Express,
+export const createIDP = (
   params: {
-    origin: string,
-    path: string,
+    issuer: string,
     client_id: string,
   },
-) => {
+): Router => {
   const {
-    origin,
-    path,
+    issuer: ISSUER,
     client_id: CLIENT_ID
   } = params
 
-  const ISSUER = `${origin}/${path}`
+  const router = Router();
+  router.use(express.urlencoded({ extended: false }));
+
   const JWT_KEY_ID = "my-key-id"
 
   const { privateKey: privateKeyPEM, publicKey: publicKeyPEM } = generateKeyPairSync('ec', {
@@ -52,7 +50,7 @@ export const assignIDPRoutes = (
 
   const store = createCodeStore()
 
-  app.get(`/${path}/.well-known/openid-configuration`, async (_req: Request, res: Response)=>{
+  router.get(`/.well-known/openid-configuration`, async (_req: Request, res: Response)=>{
     res.json({
       issuer: ISSUER,
       authorization_endpoint: `${ISSUER}/authorize`,
@@ -68,7 +66,7 @@ export const assignIDPRoutes = (
     });
   });
 
-  app.get(`/${path}/authorize`, async (req: Request, res: Response)=>{
+  router.get(`/authorize`, async (req: Request, res: Response)=>{
     const { redirect_uri, state, nonce } = req.query;
 
     if (typeof redirect_uri !== 'string') {
@@ -87,7 +85,7 @@ export const assignIDPRoutes = (
     `);
   });
 
-  app.post(`/${path}/login`, async (req: Request, res: Response)=>{
+  router.post(`/login`, async (req: Request, res: Response)=>{
     const { redirect_uri, state, nonce, username } = req.body;
 
     const code = store.register(username, nonce)
@@ -98,7 +96,7 @@ export const assignIDPRoutes = (
     res.redirect(url.toString())
   });
 
-  app.get(`/${path}/jwks`, async (_req: Request, res: Response)=>{
+  router.get(`/jwks`, async (_req: Request, res: Response)=>{
     const keyObject = createPublicKey(publicKeyPEM);
     const publicJwk = await exportJWK(keyObject);
     publicJwk.kid = JWT_KEY_ID;
@@ -108,7 +106,7 @@ export const assignIDPRoutes = (
     res.json({ keys: [publicJwk]});
   });
 
-  app.post(`/${path}/token`, async (req: Request, res: Response)=>{
+  router.post(`/token`, async (req: Request, res: Response)=>{
     const { code } = req.body ?? {}
     const { name, nonce } = store.read(code)
 
@@ -132,4 +130,6 @@ export const assignIDPRoutes = (
       expires_in: 300
     });
   });
+
+  return router
 }

@@ -1,7 +1,7 @@
 import express from "express"
 import { auth, requiresAuth  } from 'express-openid-connect';
 
-import { assignIDPRoutes } from "./IDPController"
+import { createIDP } from "./IDP"
 
 const ORIGIN = 'http://localhost:3000';
 const ISSUER = 'http://localhost:3000/IDP'; // IDPのURLを指定
@@ -33,11 +33,10 @@ app.get('/', requiresAuth (), (req, res) => {
 });
 
 // IDP部分
-assignIDPRoutes(app, {
-  origin: ORIGIN,
-  path: "IDP",
+app.use("/IDP", createIDP({
+  issuer: `${ORIGIN}/IDP`,
   client_id: CLIENT_ID,
-});
+}));
 
 // サーバー起動
 const main = async ()=>{
