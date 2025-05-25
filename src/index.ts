@@ -3,8 +3,7 @@ import { auth, requiresAuth  } from 'express-openid-connect';
 
 import { createIDP } from "./IDP"
 
-const ORIGIN = 'http://localhost:3000';
-const ISSUER = 'http://localhost:3000/IDP'; // IDPのURLを指定
+const ISSUER = 'http://localhost:3000/IDP';
 const CLIENT_ID = 'dummy-client-id'
 
 const app = express();
@@ -33,9 +32,25 @@ app.get('/', requiresAuth (), (req, res) => {
 });
 
 // IDP部分
+const table: Record<string, { username: string, nonce: string }> = {}
+const onTemporarySave = async (
+  params:  { code: string, nonce: string, username: string }
+): Promise<void> => {
+  const { code, nonce, username } = params;
+  table[code] = {
+    username, nonce
+  }
+}
+const onTemporaryLoad = async (code: string) => {
+  const data = table[code];
+  return data
+}
 app.use("/IDP", createIDP({
-  issuer: `${ORIGIN}/IDP`,
-  client_id: CLIENT_ID,
+  issuer: ISSUER,
+  clientId: CLIENT_ID,
+
+  onTemporarySave,
+  onTemporaryLoad,
 }));
 
 // サーバー起動

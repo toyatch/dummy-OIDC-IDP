@@ -2,33 +2,22 @@ import express, { Request, Response, Router } from "express"
 import { importPKCS8, SignJWT, exportJWK } from 'jose';
 import { generateKeyPairSync, createPublicKey } from 'crypto'
 
-const createCodeStore = ()=> {
-  const table: Record<string, { name: string, nonce: string }> = {}
-
-  return {
-    register: (name: string, nonce: string): string => {
-      const code = `dummy-auth-code-${name}`
-      table[code] = {
-        name, nonce
-      }
-      return `dummy-auth-code-${name}`
-    },
-    read: (code: string): { name: string, nonce: string } => {
-      const data = table[code];
-      return data
-    }
-  }
-}
-
 export const createIDP = (
   params: {
     issuer: string,
-    client_id: string,
+    clientId: string,
+
+    onTemporarySave: (
+      params: { code: string, nonce: string, username: string }
+    ) => Promise<void>,
+    onTemporaryLoad: (code: string) => Promise<{ nonce: string, username: string }>,
   },
 ): Router => {
   const {
     issuer: ISSUER,
-    client_id: CLIENT_ID
+    clientId: CLIENT_ID,
+    onTemporarySave,
+    onTemporaryLoad,
   } = params
 
   const router = Router();
@@ -47,8 +36,6 @@ export const createIDP = (
       format: 'pem'
     }
   });
-
-  const store = createCodeStore()
 
   router.get(`/.well-known/openid-configuration`, async (_req: Request, res: Response)=>{
     res.json({
@@ -87,8 +74,9 @@ export const createIDP = (
 
   router.post(`/login`, async (req: Request, res: Response)=>{
     const { redirect_uri, state, nonce, username } = req.body;
+    const code = `dummy-code-${username}`;
 
-    const code = store.register(username, nonce)
+    await onTemporarySave({ code, username, nonce })
 
     const url = new URL(redirect_uri);
     url.searchParams.set('code', code);
@@ -108,13 +96,14 @@ export const createIDP = (
 
   router.post(`/token`, async (req: Request, res: Response)=>{
     const { code } = req.body ?? {}
-    const { name, nonce } = store.read(code)
+
+    const { username, nonce } = await onTemporaryLoad(code)
 
     const privateKey = await importPKCS8(privateKeyPEM, 'ES256');
     const id_token = await new SignJWT({
-      sub: name,
-      name: name,
-      email: name,
+      sub: username,
+      name: username,
+      email: username,
       nonce,
       aud: CLIENT_ID
     }).setProtectedHeader({ alg: 'ES256', kid: JWT_KEY_ID })
